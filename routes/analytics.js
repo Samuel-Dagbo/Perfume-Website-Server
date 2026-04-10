@@ -1,16 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const { trackEvent, getOverview, getConversionFunnel, getProductAnalytics, getInventoryInsights } = require('../controllers/analyticsController');
-const { auth, adminAuth } = require('../middleware/auth');
+const { protect, admin } = require('../middleware/auth');
 
 router.post('/event', trackEvent);
 
-router.get('/overview', auth, adminAuth, getOverview);
+router.get('/overview', protect, admin, getOverview);
 
-router.get('/funnel', auth, adminAuth, getConversionFunnel);
+router.get('/funnel', protect, admin, getConversionFunnel);
 
-router.get('/product/:productId', auth, adminAuth, getProductAnalytics);
+router.get('/product/:productId', protect, admin, getProductAnalytics);
 
-router.get('/inventory-insights', auth, adminAuth, getInventoryInsights);
+router.get('/inventory-insights', protect, admin, getInventoryInsights);
 
 module.exports = router;
