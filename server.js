@@ -13,6 +13,7 @@ const userRoutes = require('./routes/users');
 const saleRoutes = require('./routes/sales');
 const adminRoutes = require('./routes/admin');
 const uploadRoutes = require('./routes/upload');
+const couponRoutes = require('./routes/coupons');
 
 const errorHandler = require('./middleware/errorHandler');
 
@@ -27,7 +28,12 @@ const limiter = rateLimit({
 app.use(helmet());
 app.use(morgan('dev'));
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: [
+    process.env.FRONTEND_URL,
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://perfumeewebs.netlify.app'
+  ].filter(Boolean),
   credentials: true
 }));
 app.use(limiter);
@@ -45,6 +51,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/sales', saleRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/coupons', couponRoutes);
 
 app.use(errorHandler);
 
