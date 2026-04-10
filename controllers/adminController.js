@@ -324,7 +324,7 @@ exports.getInventoryLogs = async (req, res, next) => {
     const skip = (Number(page) - 1) * Number(limit);
 
     const logs = await InventoryLog.find(query)
-      .sort('-createdAt')
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit))
       .populate('product', 'name sku')
