@@ -1,34 +1,62 @@
 const express = require('express');
 const router = express.Router();
 const { protect, admin } = require('../middleware/auth');
-const { cloudinary, parser } = require('../utils/cloudinary');
+const cloudinary = require('cloudinary').v2;
+const multer = require('multer');
 
-console.log('Cloudinary config:', {
-  cloud_name: process.env.CLOUD_NAME ? 'SET' : 'NOT SET',
-  api_key: process.env.CLOUD_API_KEY ? 'SET' : 'NOT SET',
-  api_secret: process.env.CLOUD_SECRET ? 'SET' : 'NOT SET'
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.CLOUD_API_KEY,
+  api_secret: process.env.CLOUD_SECRET
 });
 
-router.post('/', protect, admin, parser.array('images', 5), async (req, res, next) => {
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage: storage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'), false);
+    }
+  }
+});
+
+router.post('/', protect, admin, upload.array('images', 5), async (req, res) => {
   try {
-    console.log('Upload request received');
-    console.log('Files:', req.files);
-    
     if (!req.files || req.files.length === 0) {
-      console.log('No files in request');
       return res.status(400).json({
         success: false,
         message: 'No images uploaded'
       });
     }
 
-    const images = req.files.map(file => ({
-      url: file.path,
-      public_id: file.filename,
-      alt: req.body.alt || ''
+    const uploadPromises = req.files.map(file => {
+      return new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'luxury-perfume',
+            resource_type: 'image',
+            transformation: [{ width: 1200, height: 1200, crop: 'limit', quality: 'auto:good' }]
+          },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        stream.end(file.buffer);
+      });
+    });
+
+    const results = await Promise.all(uploadPromises);
+    
+    const images = results.map(result => ({
+      url: result.secure_url,
+      public_id: result.public_id,
+      alt: ''
     }));
 
-    console.log('Upload successful:', images.length, 'images');
     res.status(200).json({
       success: true,
       images
@@ -42,9 +70,8 @@ router.post('/', protect, admin, parser.array('images', 5), async (req, res, nex
   }
 });
 
-router.delete('/:publicId', protect, admin, async (req, res, next) => {
+router.delete('/:publicId', protect, admin, async (req, res) => {
   try {
-    console.log('Delete request for:', req.params.publicId);
     const result = await cloudinary.uploader.destroy(req.params.publicId);
 
     if (result.result !== 'ok') {
