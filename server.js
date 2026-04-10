@@ -56,11 +56,24 @@ app.use(morgan('combined'));
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'http://localhost:5173',
-  'http://localhost:3000'
+  'http://localhost:3000',
+  'https://perfumee-website.vercel.app',
+  'https://perfumee-website-*.vercel.app',
+  /\.vercel\.app$/
 ].filter(Boolean);
 
 app.use(cors({
-  origin: allowedOrigins,
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.some(o => {
+      if (o instanceof RegExp) return o.test(origin);
+      if (typeof o === 'string') return o === origin || o === '*';
+      return false;
+    })) {
+      callback(null, true);
+    } else {
+      callback(null, true);
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-Id']
