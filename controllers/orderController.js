@@ -1,7 +1,9 @@
 const Order = require('../models/Order');
 const Sale = require('../models/Sale');
 const Product = require('../models/Product');
+const User = require('../models/User');
 const { updateInventory, checkStockAvailability } = require('../utils/inventoryService');
+const { orderConfirmationEmail, orderStatusUpdateEmail } = require('../utils/emailService');
 
 exports.createOrder = async (req, res, next) => {
   const session = await require('mongoose').startSession();
@@ -41,8 +43,11 @@ exports.createOrder = async (req, res, next) => {
       subtotal += product.price * item.quantity;
     }
 
-    const shippingCost = subtotal > 100 ? 0 : 10;
-    const tax = subtotal * 0.08;
+    const FREE_SHIPPING_THRESHOLD = 500;
+    const TAX_RATE = 0.03;
+    
+    const shippingCost = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : 25;
+    const tax = subtotal * TAX_RATE;
     const total = subtotal + shippingCost + tax;
 
     const order = await Order.create([{
@@ -82,6 +87,15 @@ exports.createOrder = async (req, res, next) => {
 
     await session.commitTransaction();
     session.endSession();
+
+    try {
+      const user = await User.findById(req.user.id);
+      if (user) {
+        await orderConfirmationEmail(order[0], user);
+      }
+    } catch (emailError) {
+      console.error('Failed to send order confirmation email:', emailError);
+    }
 
     res.status(201).json({
       success: true,
@@ -142,17 +156,24 @@ exports.updateOrderStatus = async (req, res, next) => {
   try {
     const { orderStatus } = req.body;
 
-    const order = await Order.findByIdAndUpdate(
-      req.params.id,
-      { orderStatus },
-      { new: true, runValidators: true }
-    );
+    const order = await Order.findById(req.params.id).populate('user');
 
     if (!order) {
       return res.status(404).json({
         success: false,
         message: 'Order not found'
       });
+    }
+
+    order.orderStatus = orderStatus;
+    await order.save();
+
+    try {
+      if (order.user && ['processing', 'shipped', 'delivered', 'cancelled'].includes(orderStatus)) {
+        await orderStatusUpdateEmail(order, order.user, orderStatus);
+      }
+    } catch (emailError) {
+      console.error('Failed to send status update email:', emailError);
     }
 
     res.status(200).json({
