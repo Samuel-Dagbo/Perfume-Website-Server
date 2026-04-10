@@ -2,6 +2,7 @@ const User = require('../models/User');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
 const Sale = require('../models/Sale');
+const InventoryLog = require('../models/InventoryLog');
 const { getInventoryStats } = require('../utils/inventoryService');
 
 exports.getDashboardStats = async (req, res, next) => {
@@ -301,6 +302,44 @@ exports.bulkUpdateStock = async (req, res, next) => {
       success: true,
       products: updatedProducts,
       message: 'Stock updated successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getInventoryLogs = async (req, res, next) => {
+  try {
+    const { productId } = req.params;
+    const { page = 1, limit = 20, type } = req.query;
+
+    const query = {};
+    if (productId) {
+      query.product = productId;
+    }
+    if (type) {
+      query.changeType = type;
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const logs = await InventoryLog.find(query)
+      .sort('-createdAt')
+      .skip(skip)
+      .limit(Number(limit))
+      .populate('product', 'name sku')
+      .populate('user', 'name');
+
+    const total = await InventoryLog.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      logs,
+      pagination: {
+        currentPage: Number(page),
+        totalPages: Math.ceil(total / Number(limit)),
+        totalLogs: total
+      }
     });
   } catch (error) {
     next(error);

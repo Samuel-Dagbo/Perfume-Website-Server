@@ -12,6 +12,7 @@ router.delete('/users/:id', protect, admin, adminController.deleteUser);
 
 router.get('/inventory', protect, admin, adminController.getInventory);
 router.put('/inventory/bulk', protect, admin, adminController.bulkUpdateStock);
+router.get('/inventory/logs/:productId?', protect, admin, adminController.getInventoryLogs);
 
 router.get('/products', protect, admin, adminController.getAllProductsAdmin);
 
