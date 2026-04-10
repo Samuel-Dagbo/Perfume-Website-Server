@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { Event, DailyAggregate } = require('../models/Analytics');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
@@ -556,5 +557,3 @@ exports.getInventoryInsights = async (req, res) => {
     next(error);
   }
 };
-
-const mongoose = require('mongoose');
