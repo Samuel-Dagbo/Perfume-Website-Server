@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: luxe-perfume-api
+    env: node
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/products?limit=1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CLOUDINARY_APIKEY
+        sync: false
+      - key: CLOUDINARY_APISECRET
+        sync: false
+      - key: FRONTEND_URL
+        fromService:
+          type: web
+          name: luxe-perfume-frontend
+          envVarKey: RENDER_EXTERNAL_URL
