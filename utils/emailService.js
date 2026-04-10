@@ -219,9 +219,172 @@ const passwordResetEmail = async (user, resetToken) => {
   });
 };
 
+const orderConfirmationEmail = async (order, user) => {
+  const itemsHtml = order.items.map(item => `
+    <tr>
+      <td style="padding: 16px; border-bottom: 1px solid #f3f4f6;">
+        <p style="margin: 0; color: #1a1a2e; font-weight: 500;">${item.name}</p>
+        <p style="margin: 4px 0 0; color: #6b7280; font-size: 14px;">Qty: ${item.quantity}</p>
+      </td>
+      <td style="padding: 16px; border-bottom: 1px solid #f3f4f6; text-align: right; color: #1a1a2e;">
+        $${item.total.toFixed(2)}
+      </td>
+    </tr>
+  `).join('');
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Order Confirmation</title>
+    </head>
+    <body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f9fafb;">
+      <div style="max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.1);">
+        <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 40px; text-align: center;">
+          <h1 style="color: #d4af37; margin: 0; font-size: 32px; font-weight: 300; letter-spacing: 4px;">LUXURY PERFUME</h1>
+          <p style="color: #9ca3af; margin: 10px 0 0; font-size: 14px;">Order Confirmation</p>
+        </div>
+        
+        <div style="padding: 40px;">
+          <h2 style="color: #1a1a2e; font-size: 24px; font-weight: 400; margin-bottom: 10px;">Thank You, ${user.name}!</h2>
+          <p style="color: #6b7280; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
+            Your order #${order._id.toString().slice(-8).toUpperCase()} has been confirmed and is being processed.
+          </p>
+          
+          <div style="background: #f9fafb; border-radius: 8px; padding: 24px; margin-bottom: 30px;">
+            <h3 style="color: #1a1a2e; font-size: 16px; margin: 0 0 16px; font-weight: 600;">Order Details</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+              ${itemsHtml}
+            </table>
+            <div style="margin-top: 16px; padding-top: 16px; border-top: 2px solid #e5e7eb;">
+              <table style="width: 100%;">
+                <tr>
+                  <td style="color: #6b7280; padding: 4px 0;">Subtotal:</td>
+                  <td style="text-align: right; color: #1a1a2e;">$${order.subtotal.toFixed(2)}</td>
+                </tr>
+                <tr>
+                  <td style="color: #6b7280; padding: 4px 0;">Shipping:</td>
+                  <td style="text-align: right; color: #1a1a2e;">$${order.shippingCost.toFixed(2)}</td>
+                </tr>
+                <tr>
+                  <td style="color: #6b7280; padding: 4px 0;">Tax:</td>
+                  <td style="text-align: right; color: #1a1a2e;">$${order.tax.toFixed(2)}</td>
+                </tr>
+                <tr style="font-weight: 600;">
+                  <td style="color: #1a1a2e; padding: 8px 0 0; font-size: 18px;">Total:</td>
+                  <td style="text-align: right; color: #d4af37; font-size: 18px;">$${order.total.toFixed(2)}</td>
+                </tr>
+              </table>
+            </div>
+          </div>
+          
+          <div style="background: #f9fafb; border-radius: 8px; padding: 24px; margin-bottom: 30px;">
+            <h3 style="color: #1a1a2e; font-size: 16px; margin: 0 0 16px; font-weight: 600;">Shipping Address</h3>
+            <p style="color: #6b7280; margin: 0; line-height: 1.6;">
+              ${order.shippingAddress.fullName}<br>
+              ${order.shippingAddress.street}<br>
+              ${order.shippingAddress.city}, ${order.shippingAddress.state} ${order.shippingAddress.zipCode}<br>
+              ${order.shippingAddress.country}
+            </p>
+          </div>
+          
+          <a href="${process.env.FRONTEND_URL}/orders/${order._id}" style="display: inline-block; background: linear-gradient(135deg, #d4af37 0%, #f5d67b 100%); color: #1a1a2e; padding: 16px 40px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; text-transform: uppercase; letter-spacing: 1px;">
+            View Order
+          </a>
+        </div>
+        
+        <div style="background: #1a1a2e; padding: 30px; text-align: center;">
+          <p style="color: #9ca3af; font-size: 14px; margin: 0;">
+            © 2024 Luxury Perfume. All rights reserved.<br>
+            Questions? Contact us at support@luxuryperfume.com
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  await sendEmail({
+    to: user.email,
+    subject: `Order Confirmed #${order._id.toString().slice(-8).toUpperCase()} - Luxury Perfume`,
+    html
+  });
+};
+
+const orderStatusUpdateEmail = async (order, user, newStatus) => {
+  const statusMessages = {
+    processing: 'Your order is being prepared',
+    shipped: 'Your order has been shipped',
+    delivered: 'Your order has been delivered',
+    cancelled: 'Your order has been cancelled'
+  };
+
+  const statusColors = {
+    processing: '#3b82f6',
+    shipped: '#8b5cf6',
+    delivered: '#10b981',
+    cancelled: '#ef4444'
+  };
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Order Update</title>
+    </head>
+    <body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f9fafb;">
+      <div style="max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.1);">
+        <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 40px; text-align: center;">
+          <h1 style="color: #d4af37; margin: 0; font-size: 32px; font-weight: 300; letter-spacing: 4px;">LUXURY PERFUME</h1>
+        </div>
+        
+        <div style="padding: 40px; text-align: center;">
+          <div style="width: 80px; height: 80px; border-radius: 50%; background: ${statusColors[newStatus]}20; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center;">
+            <span style="font-size: 32px;">${newStatus === 'shipped' ? '📦' : newStatus === 'delivered' ? '✅' : newStatus === 'cancelled' ? '❌' : '📋'}</span>
+          </div>
+          
+          <h2 style="color: #1a1a2e; font-size: 24px; font-weight: 400; margin-bottom: 10px;">${statusMessages[newStatus]}</h2>
+          <p style="color: #6b7280; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
+            Hello ${user.name},<br>
+            Order #${order._id.toString().slice(-8).toUpperCase()} has been updated.
+          </p>
+          
+          ${newStatus === 'shipped' && order.trackingNumber ? `
+          <div style="background: #f9fafb; border-radius: 8px; padding: 24px; margin-bottom: 30px;">
+            <p style="color: #6b7280; margin: 0; font-size: 14px;">Tracking Number</p>
+            <p style="color: #1a1a2e; font-size: 18px; font-weight: 600; margin: 8px 0 0;">${order.trackingNumber}</p>
+          </div>
+          ` : ''}
+          
+          <a href="${process.env.FRONTEND_URL}/orders/${order._id}" style="display: inline-block; background: linear-gradient(135deg, #d4af37 0%, #f5d67b 100%); color: #1a1a2e; padding: 16px 40px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; text-transform: uppercase; letter-spacing: 1px;">
+            View Order Details
+          </a>
+        </div>
+        
+        <div style="background: #1a1a2e; padding: 30px; text-align: center;">
+          <p style="color: #9ca3af; font-size: 14px; margin: 0;">
+            © 2024 Luxury Perfume. All rights reserved.
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  await sendEmail({
+    to: user.email,
+    subject: `Order Update #${order._id.toString().slice(-8).toUpperCase()} - ${statusMessages[newStatus]}`,
+    html
+  });
+};
+
 module.exports = {
   sendEmail,
   welcomeEmail,
   loginNotificationEmail,
-  passwordResetEmail
+  passwordResetEmail,
+  orderConfirmationEmail,
+  orderStatusUpdateEmail
 };
