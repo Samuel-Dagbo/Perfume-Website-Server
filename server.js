@@ -38,8 +38,8 @@ app.use(cors({
   credentials: true
 }));
 app.use(limiter);
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/luxury-perfume')
   .then(() => console.log('MongoDB connected'))
