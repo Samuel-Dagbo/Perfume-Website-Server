@@ -4,9 +4,16 @@ const Order = require('../models/Order');
 const Sale = require('../models/Sale');
 const InventoryLog = require('../models/InventoryLog');
 const { getInventoryStats } = require('../utils/inventoryService');
+const { CacheService, CACHE_KEYS, TTL } = require('../utils/cacheService');
 
 exports.getDashboardStats = async (req, res, next) => {
   try {
+    const cacheKey = CACHE_KEYS.DASHBOARD_STATS;
+    const cached = await CacheService.get(cacheKey);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -27,8 +34,8 @@ exports.getDashboardStats = async (req, res, next) => {
       Product.countDocuments({ isActive: true }),
       Order.countDocuments(),
       getInventoryStats(),
-      Order.find().sort('-createdAt').limit(5).populate('user', 'name email'),
-      Sale.find().sort('-createdAt').limit(5).populate('cashier', 'name')
+      Order.find().sort('-createdAt').limit(5).populate('user', 'name email').lean(),
+      Sale.find().sort('-createdAt').limit(5).populate('cashier', 'name').lean()
     ]);
 
     const totalRevenue = await Sale.aggregate([
@@ -54,7 +61,7 @@ exports.getDashboardStats = async (req, res, next) => {
       }
     ]);
 
-    res.status(200).json({
+    const result = {
       success: true,
       stats: {
         users: {
@@ -82,7 +89,11 @@ exports.getDashboardStats = async (req, res, next) => {
         recentOrders,
         recentSales
       }
-    });
+    };
+
+    await CacheService.set(cacheKey, result, TTL.SHORT);
+
+    res.status(200).json(result);
   } catch (error) {
     next(error);
   }
@@ -97,6 +108,7 @@ exports.getUsers = async (req, res, next) => {
       search
     } = req.query;
 
+    const limitNum = Math.min(Number(limit), 100);
     const query = {};
 
     if (role) {
@@ -110,13 +122,14 @@ exports.getUsers = async (req, res, next) => {
       ];
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
+    const skip = (Number(page) - 1) * limitNum;
 
     const users = await User.find(query)
       .sort('-createdAt')
       .skip(skip)
-      .limit(Number(limit))
-      .select('-password');
+      .limit(limitNum)
+      .select('-password')
+      .lean();
 
     const total = await User.countDocuments(query);
 
@@ -125,7 +138,7 @@ exports.getUsers = async (req, res, next) => {
       users,
       pagination: {
         currentPage: Number(page),
-        totalPages: Math.ceil(total / Number(limit)),
+        totalPages: Math.ceil(total / limitNum),
         totalUsers: total
       }
     });
@@ -138,7 +151,8 @@ exports.getUser = async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id)
       .select('-password')
-      .populate('wishlist');
+      .populate('wishlist')
+      .lean();
 
     if (!user) {
       return res.status(404).json({
@@ -147,13 +161,10 @@ exports.getUser = async (req, res, next) => {
       });
     }
 
-    const userOrders = await Order.find({ user: req.params.id })
-      .sort('-createdAt')
-      .limit(10);
-
-    const userSales = await Sale.find({ user: req.params.id })
-      .sort('-createdAt')
-      .limit(10);
+    const [userOrders, userSales] = await Promise.all([
+      Order.find({ user: req.params.id }).sort('-createdAt').limit(10).lean(),
+      Sale.find({ user: req.params.id }).sort('-createdAt').limit(10).lean()
+    ]);
 
     res.status(200).json({
       success: true,
@@ -232,6 +243,7 @@ exports.getInventory = async (req, res, next) => {
       sort = '-stockQuantity'
     } = req.query;
 
+    const limitNum = Math.min(Number(limit), 100);
     const query = { isActive: true };
 
     if (search) {
@@ -240,7 +252,8 @@ exports.getInventory = async (req, res, next) => {
 
     let allProducts = await Product.find(query)
       .select('name sku stockQuantity lowStockThreshold category price isActive')
-      .sort(sort);
+      .sort(sort)
+      .lean();
 
     if (status === 'low') {
       allProducts = allProducts.filter(p => p.stockQuantity > 0 && p.stockQuantity <= p.lowStockThreshold);
@@ -251,8 +264,8 @@ exports.getInventory = async (req, res, next) => {
     }
 
     const total = allProducts.length;
-    const skip = (Number(page) - 1) * Number(limit);
-    const products = allProducts.slice(skip, skip + Number(limit));
+    const skip = (Number(page) - 1) * limitNum;
+    const products = allProducts.slice(skip, skip + limitNum);
 
     const enrichedProducts = products.map(p => ({
       _id: p._id,
@@ -272,7 +285,7 @@ exports.getInventory = async (req, res, next) => {
       products: enrichedProducts,
       pagination: {
         currentPage: Number(page),
-        totalPages: Math.ceil(total / Number(limit)),
+        totalPages: Math.ceil(total / limitNum),
         totalProducts: total
       }
     });
@@ -296,7 +309,9 @@ exports.bulkUpdateStock = async (req, res, next) => {
 
     const updatedProducts = await Product.find({
       _id: { $in: updates.map(u => u.productId) }
-    }).select('name sku stockQuantity');
+    }).select('name sku stockQuantity').lean();
+
+    await CacheService.invalidateProducts();
 
     res.status(200).json({
       success: true,
@@ -313,6 +328,7 @@ exports.getInventoryLogs = async (req, res, next) => {
     const { productId } = req.params;
     const { page = 1, limit = 20, type } = req.query;
 
+    const limitNum = Math.min(Number(limit), 100);
     const query = {};
     if (productId) {
       query.product = productId;
@@ -321,14 +337,15 @@ exports.getInventoryLogs = async (req, res, next) => {
       query.changeType = type;
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
+    const skip = (Number(page) - 1) * limitNum;
 
     const logs = await InventoryLog.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(Number(limit))
+      .limit(limitNum)
       .populate('product', 'name sku')
-      .populate('user', 'name');
+      .populate('user', 'name')
+      .lean();
 
     const total = await InventoryLog.countDocuments(query);
 
@@ -337,7 +354,7 @@ exports.getInventoryLogs = async (req, res, next) => {
       logs,
       pagination: {
         currentPage: Number(page),
-        totalPages: Math.ceil(total / Number(limit)),
+        totalPages: Math.ceil(total / limitNum),
         totalLogs: total
       }
     });
@@ -357,6 +374,7 @@ exports.getAllProductsAdmin = async (req, res, next) => {
       sort = '-createdAt'
     } = req.query;
 
+    const limitNum = Math.min(Number(limit), 100);
     const query = {};
 
     if (category) {
@@ -376,13 +394,14 @@ exports.getAllProductsAdmin = async (req, res, next) => {
       ];
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
+    const skip = (Number(page) - 1) * limitNum;
 
     const products = await Product.find(query)
       .sort(sort)
       .skip(skip)
-      .limit(Number(limit))
-      .populate('reviews', 'rating');
+      .limit(limitNum)
+      .populate('reviews', 'rating')
+      .lean();
 
     const total = await Product.countDocuments(query);
 
@@ -391,7 +410,7 @@ exports.getAllProductsAdmin = async (req, res, next) => {
       products,
       pagination: {
         currentPage: Number(page),
-        totalPages: Math.ceil(total / Number(limit)),
+        totalPages: Math.ceil(total / limitNum),
         totalProducts: total
       }
     });

@@ -1,5 +1,6 @@
 const Product = require('../models/Product');
 const { updateInventory } = require('../utils/inventoryService');
+const { CacheService, CACHE_KEYS, TTL } = require('../utils/cacheService');
 
 exports.getProducts = async (req, res, next) => {
   try {
@@ -14,6 +15,14 @@ exports.getProducts = async (req, res, next) => {
       featured,
       inStock
     } = req.query;
+
+    const limitNum = Math.min(Number(limit), 50);
+
+    const cacheKey = `products:list:${page}:${limitNum}:${category}:${minPrice}:${maxPrice}:${search}:${sort}:${featured}:${inStock}`;
+    const cached = await CacheService.get(cacheKey);
+    if (cached && !search) {
+      return res.status(200).json(cached);
+    }
 
     const query = { isActive: true };
 
@@ -39,27 +48,34 @@ exports.getProducts = async (req, res, next) => {
       query.stockQuantity = { $gt: 0 };
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
+    const skip = (Number(page) - 1) * limitNum;
 
     const products = await Product.find(query)
       .sort(sort)
       .skip(skip)
-      .limit(Number(limit))
-      .select('-reviews.user');
+      .limit(limitNum)
+      .select('-reviews.user')
+      .lean();
 
     const total = await Product.countDocuments(query);
 
-    res.status(200).json({
+    const result = {
       success: true,
       products,
       pagination: {
         currentPage: Number(page),
-        totalPages: Math.ceil(total / Number(limit)),
+        totalPages: Math.ceil(total / limitNum),
         totalProducts: total,
-        hasNextPage: Number(page) < Math.ceil(total / Number(limit)),
+        hasNextPage: Number(page) < Math.ceil(total / limitNum),
         hasPrevPage: Number(page) > 1
       }
-    });
+    };
+
+    if (!search) {
+      await CacheService.set(cacheKey, result, TTL.MEDIUM);
+    }
+
+    res.status(200).json(result);
   } catch (error) {
     next(error);
   }
@@ -67,7 +83,17 @@ exports.getProducts = async (req, res, next) => {
 
 exports.getProduct = async (req, res, next) => {
   try {
-    const product = await Product.findById(req.params.id).populate('reviews.user', 'name avatar');
+    const { id } = req.params;
+    
+    const cacheKey = CACHE_KEYS.PRODUCT_DETAIL(id);
+    const cached = await CacheService.get(cacheKey);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
+
+    const product = await Product.findById(id)
+      .populate('reviews.user', 'name avatar')
+      .lean();
 
     if (!product) {
       return res.status(404).json({
@@ -76,10 +102,14 @@ exports.getProduct = async (req, res, next) => {
       });
     }
 
-    res.status(200).json({
+    const result = {
       success: true,
       product
-    });
+    };
+
+    await CacheService.set(cacheKey, result, TTL.MEDIUM);
+
+    res.status(200).json(result);
   } catch (error) {
     next(error);
   }
@@ -88,6 +118,8 @@ exports.getProduct = async (req, res, next) => {
 exports.createProduct = async (req, res, next) => {
   try {
     const product = await Product.create(req.body);
+
+    await CacheService.invalidateProducts();
 
     res.status(201).json({
       success: true,
@@ -115,6 +147,9 @@ exports.updateProduct = async (req, res, next) => {
       { new: true, runValidators: true }
     );
 
+    await CacheService.invalidateProducts();
+    await CacheService.del(CACHE_KEYS.PRODUCT_DETAIL(req.params.id));
+
     res.status(200).json({
       success: true,
       product
@@ -137,6 +172,9 @@ exports.deleteProduct = async (req, res, next) => {
 
     product.isActive = false;
     await product.save();
+
+    await CacheService.invalidateProducts();
+    await CacheService.del(CACHE_KEYS.PRODUCT_DETAIL(req.params.id));
 
     res.status(200).json({
       success: true,
@@ -184,6 +222,8 @@ exports.addReview = async (req, res, next) => {
 
     await product.save();
 
+    await CacheService.del(CACHE_KEYS.PRODUCT_DETAIL(productId));
+
     res.status(201).json({
       success: true,
       product
@@ -208,7 +248,7 @@ exports.getRelatedProducts = async (req, res, next) => {
       _id: { $ne: product._id },
       category: product.category,
       isActive: true
-    }).limit(4);
+    }).limit(4).lean();
 
     res.status(200).json({
       success: true,
@@ -221,18 +261,29 @@ exports.getRelatedProducts = async (req, res, next) => {
 
 exports.getFeaturedProducts = async (req, res, next) => {
   try {
+    const cacheKey = CACHE_KEYS.FEATURED_PRODUCTS;
+    const cached = await CacheService.get(cacheKey);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
+
     const products = await Product.find({
       isFeatured: true,
       isActive: true,
       stockQuantity: { $gt: 0 }
     })
     .sort('-createdAt')
-    .limit(8);
+    .limit(8)
+    .lean();
 
-    res.status(200).json({
+    const result = {
       success: true,
       products
-    });
+    };
+
+    await CacheService.set(cacheKey, result, TTL.LONG);
+
+    res.status(200).json(result);
   } catch (error) {
     next(error);
   }
@@ -245,7 +296,7 @@ exports.searchProducts = async (req, res, next) => {
     const products = await Product.find({
       $text: { $search: q },
       isActive: true
-    }).limit(20);
+    }).limit(20).lean();
 
     res.status(200).json({
       success: true,
@@ -261,19 +312,30 @@ exports.updateStock = async (req, res, next) => {
   try {
     const { quantity } = req.body;
 
+    const product = await Product.findById(req.params.id);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
     await updateInventory({
       productId: req.params.id,
-      quantityChange: quantity - (await Product.findById(req.params.id)).stockQuantity,
+      quantityChange: quantity - product.stockQuantity,
       changeType: 'manual_adjustment',
       reason: req.body.reason || 'Manual stock update',
       userId: req.user.id
     });
 
-    const product = await Product.findById(req.params.id);
+    const updatedProduct = await Product.findById(req.params.id);
+
+    await CacheService.invalidateProducts();
+    await CacheService.del(CACHE_KEYS.PRODUCT_DETAIL(req.params.id));
 
     res.status(200).json({
       success: true,
-      product
+      product: updatedProduct
     });
   } catch (error) {
     next(error);

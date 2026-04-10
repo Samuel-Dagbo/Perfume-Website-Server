@@ -3,7 +3,14 @@ const Sale = require('../models/Sale');
 const Product = require('../models/Product');
 const User = require('../models/User');
 const { updateInventory, checkStockAvailability } = require('../utils/inventoryService');
-const { orderConfirmationEmail, orderStatusUpdateEmail } = require('../utils/emailService');
+const { CacheService, CACHE_KEYS } = require('../utils/cacheService');
+const { PerformanceMonitor, CircuitBreaker } = require('../utils/logger');
+const jobHelpers = require('../utils/jobProcessors');
+
+const emailCircuitBreaker = new CircuitBreaker({
+  failureThreshold: 3,
+  resetTimeout: 60000
+});
 
 exports.createOrder = async (req, res, next) => {
   const session = await require('mongoose').startSession();
@@ -29,7 +36,7 @@ exports.createOrder = async (req, res, next) => {
     const orderItems = [];
 
     for (const item of items) {
-      const product = await Product.findById(item.product);
+      const product = await Product.findById(item.product).session(session);
       
       orderItems.push({
         product: product._id,
@@ -44,7 +51,6 @@ exports.createOrder = async (req, res, next) => {
     }
 
     const TAX_RATE = 0.03;
-    
     const shippingCost = 0;
     const tax = subtotal * TAX_RATE;
     const total = subtotal + shippingCost + tax;
@@ -87,14 +93,11 @@ exports.createOrder = async (req, res, next) => {
     await session.commitTransaction();
     session.endSession();
 
-    try {
-      const user = await User.findById(req.user.id);
-      if (user) {
-        await orderConfirmationEmail(order[0], user);
-      }
-    } catch (emailError) {
-      console.error('Failed to send order confirmation email:', emailError);
-    }
+    await CacheService.invalidateOrders();
+
+    jobHelpers.sendOrderConfirmation(order[0], { _id: req.user.id, name: req.user.name, email: req.user.email }).catch(err => {
+      console.error('Failed to queue order confirmation email:', err);
+    });
 
     res.status(201).json({
       success: true,
@@ -111,7 +114,8 @@ exports.getOrders = async (req, res, next) => {
   try {
     const orders = await Order.find({ user: req.user.id })
       .sort('-createdAt')
-      .populate('items.product', 'name images');
+      .populate('items.product', 'name images')
+      .lean();
 
     res.status(200).json({
       success: true,
@@ -126,7 +130,8 @@ exports.getOrder = async (req, res, next) => {
   try {
     const order = await Order.findById(req.params.id)
       .populate('items.product')
-      .populate('user', 'name email');
+      .populate('user', 'name email')
+      .lean();
 
     if (!order) {
       return res.status(404).json({
@@ -167,12 +172,12 @@ exports.updateOrderStatus = async (req, res, next) => {
     order.orderStatus = orderStatus;
     await order.save();
 
-    try {
-      if (order.user && ['processing', 'shipped', 'delivered', 'cancelled'].includes(orderStatus)) {
-        await orderStatusUpdateEmail(order, order.user, orderStatus);
-      }
-    } catch (emailError) {
-      console.error('Failed to send status update email:', emailError);
+    await CacheService.invalidateOrders();
+
+    if (order.user && ['processing', 'shipped', 'delivered', 'cancelled'].includes(orderStatus)) {
+      jobHelpers.sendOrderStatusUpdate(order, order.user, orderStatus).catch(err => {
+        console.error('Failed to queue status update email:', err);
+      });
     }
 
     res.status(200).json({
@@ -194,6 +199,12 @@ exports.getAllOrders = async (req, res, next) => {
       sort = '-createdAt'
     } = req.query;
 
+    const cacheKey = `orders:list:${page}:${limit}:${status}:${search}:${sort}`;
+    const cached = await CacheService.get(cacheKey);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
+
     const query = {};
 
     if (status) {
@@ -209,16 +220,18 @@ exports.getAllOrders = async (req, res, next) => {
     }
 
     const skip = (Number(page) - 1) * Number(limit);
+    const limitNum = Math.min(Number(limit), 100);
 
     const orders = await Order.find(query)
       .sort(sort)
       .skip(skip)
-      .limit(Number(limit))
-      .populate('user', 'name email');
+      .limit(limitNum)
+      .populate('user', 'name email')
+      .lean();
 
     const total = await Order.countDocuments(query);
 
-    res.status(200).json({
+    const result = {
       success: true,
       orders,
       pagination: {
@@ -226,7 +239,11 @@ exports.getAllOrders = async (req, res, next) => {
         totalPages: Math.ceil(total / Number(limit)),
         totalOrders: total
       }
-    });
+    };
+
+    await CacheService.set(cacheKey, result, 60);
+
+    res.status(200).json(result);
   } catch (error) {
     next(error);
   }
@@ -283,6 +300,8 @@ exports.cancelOrder = async (req, res, next) => {
 
     await session.commitTransaction();
     session.endSession();
+
+    await CacheService.invalidateOrders();
 
     res.status(200).json({
       success: true,
