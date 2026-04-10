@@ -1,4 +1,4 @@
-const CacheEntry = require('../models/dbCache');
+const CacheEntry = require('./dbCache');
 
 const DEFAULT_TTL = 5 * 60;
 const SHORT_TTL = 60;
