@@ -1,0 +1,362 @@
+const User = require('../models/User');
+const Product = require('../models/Product');
+const Order = require('../models/Order');
+const Sale = require('../models/Sale');
+const { getInventoryStats } = require('../utils/inventoryService');
+
+exports.getDashboardStats = async (req, res, next) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    const [
+      totalUsers,
+      totalProducts,
+      totalOrders,
+      inventoryStats,
+      recentOrders,
+      recentSales
+    ] = await Promise.all([
+      User.countDocuments(),
+      Product.countDocuments({ isActive: true }),
+      Order.countDocuments(),
+      getInventoryStats(),
+      Order.find().sort('-createdAt').limit(5).populate('user', 'name email'),
+      Sale.find().sort('-createdAt').limit(5).populate('cashier', 'name')
+    ]);
+
+    const totalRevenue = await Sale.aggregate([
+      { $group: { _id: null, total: { $sum: '$total' } } }
+    ]);
+
+    const monthlyRevenue = await Sale.aggregate([
+      { $match: { createdAt: { $gte: monthStart } } },
+      { $group: { _id: null, total: { $sum: '$total' } } }
+    ]);
+
+    const weeklyRevenue = await Sale.aggregate([
+      { $match: { createdAt: { $gte: weekAgo } } },
+      { $group: { _id: null, total: { $sum: '$total' } } }
+    ]);
+
+    const orderStats = await Order.aggregate([
+      {
+        $group: {
+          _id: '$orderStatus',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      stats: {
+        users: {
+          total: totalUsers,
+          newThisWeek: await User.countDocuments({ createdAt: { $gte: weekAgo } })
+        },
+        products: {
+          total: totalProducts,
+          lowStock: inventoryStats.lowStockProducts,
+          outOfStock: inventoryStats.outOfStockProducts,
+          totalValue: inventoryStats.totalStock[0]?.total || 0
+        },
+        orders: {
+          total: totalOrders,
+          pending: orderStats.find(o => o._id === 'pending')?.count || 0,
+          processing: orderStats.find(o => o._id === 'processing')?.count || 0,
+          shipped: orderStats.find(o => o._id === 'shipped')?.count || 0,
+          delivered: orderStats.find(o => o._id === 'delivered')?.count || 0
+        },
+        revenue: {
+          total: totalRevenue[0]?.total || 0,
+          monthly: monthlyRevenue[0]?.total || 0,
+          weekly: weeklyRevenue[0]?.total || 0
+        },
+        recentOrders,
+        recentSales
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getUsers = async (req, res, next) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      role,
+      search
+    } = req.query;
+
+    const query = {};
+
+    if (role) {
+      query.role = role;
+    }
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const users = await User.find(query)
+      .sort('-createdAt')
+      .skip(skip)
+      .limit(Number(limit))
+      .select('-password');
+
+    const total = await User.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      users,
+      pagination: {
+        currentPage: Number(page),
+        totalPages: Math.ceil(total / Number(limit)),
+        totalUsers: total
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getUser = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id)
+      .select('-password')
+      .populate('wishlist');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const userOrders = await Order.find({ user: req.params.id })
+      .sort('-createdAt')
+      .limit(10);
+
+    const userSales = await Sale.find({ user: req.params.id })
+      .sort('-createdAt')
+      .limit(10);
+
+    res.status(200).json({
+      success: true,
+      user,
+      userOrders,
+      userSales
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.updateUser = async (req, res, next) => {
+  try {
+    const { name, email, role, isActive, phone, address } = req.body;
+
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { name, email, role, isActive, phone, address },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      user
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.deleteUser = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (user.role === 'admin') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete admin users'
+      });
+    }
+
+    user.isActive = false;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'User deactivated successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getInventory = async (req, res, next) => {
+  try {
+    const {
+      page = 1,
+      limit = 50,
+      status,
+      search,
+      sort = '-stockQuantity'
+    } = req.query;
+
+    const query = { isActive: true };
+
+    if (search) {
+      query.name = { $regex: search, $options: 'i' };
+    }
+
+    if (status === 'low') {
+      query.$expr = {
+        $and: [
+          { $gt: ['$stockQuantity', 0] },
+          { $lte: ['$stockQuantity', '$lowStockThreshold'] }
+        ]
+      };
+    } else if (status === 'out') {
+      query.stockQuantity = 0;
+    } else if (status === 'in') {
+      query.$expr = { $gt: ['$stockQuantity', '$lowStockThreshold'] };
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const products = await Product.find(query)
+      .select('name sku stockQuantity lowStockThreshold category price isActive')
+      .sort(sort)
+      .skip(skip)
+      .limit(Number(limit));
+
+    const total = await Product.countDocuments(query);
+
+    const enrichedProducts = products.map(p => ({
+      ...p.toObject(),
+      status: p.stockQuantity === 0 ? 'out_of_stock' : 
+              p.stockQuantity <= p.lowStockThreshold ? 'low_stock' : 'in_stock'
+    }));
+
+    res.status(200).json({
+      success: true,
+      products: enrichedProducts,
+      pagination: {
+        currentPage: Number(page),
+        totalPages: Math.ceil(total / Number(limit)),
+        totalProducts: total
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.bulkUpdateStock = async (req, res, next) => {
+  try {
+    const { updates } = req.body;
+
+    const bulkOps = updates.map(update => ({
+      updateOne: {
+        filter: { _id: update.productId },
+        update: { $inc: { stockQuantity: update.change } }
+      }
+    }));
+
+    await Product.bulkWrite(bulkOps);
+
+    const updatedProducts = await Product.find({
+      _id: { $in: updates.map(u => u.productId) }
+    }).select('name sku stockQuantity');
+
+    res.status(200).json({
+      success: true,
+      products: updatedProducts,
+      message: 'Stock updated successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getAllProductsAdmin = async (req, res, next) => {
+  try {
+    const {
+      page = 1,
+      limit = 50,
+      category,
+      status,
+      search,
+      sort = '-createdAt'
+    } = req.query;
+
+    const query = {};
+
+    if (category) {
+      query.category = category.toLowerCase();
+    }
+
+    if (status === 'active') {
+      query.isActive = true;
+    } else if (status === 'inactive') {
+      query.isActive = false;
+    }
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { sku: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const products = await Product.find(query)
+      .sort(sort)
+      .skip(skip)
+      .limit(Number(limit))
+      .populate('reviews', 'rating');
+
+    const total = await Product.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      products,
+      pagination: {
+        currentPage: Number(page),
+        totalPages: Math.ceil(total / Number(limit)),
+        totalProducts: total
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
