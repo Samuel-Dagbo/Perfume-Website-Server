@@ -5,9 +5,9 @@ const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 
 cloudinary.config({
-  cloud_name: process.env.CLOUD_NAME || 'dxgxu4znm',
-  api_key: process.env.CLOUD_API_KEY || '',
-  api_secret: process.env.CLOUD_SECRET || ''
+  cloud_name: process.env.CLOUDINARY_CLOUDNAME,
+  api_key: process.env.CLOUDINARY_APIKEY,
+  api_secret: process.env.CLOUDINARY_APISECRET
 });
 
 router.get('/test', (req, res) => {
