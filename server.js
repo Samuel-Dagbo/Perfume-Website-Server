@@ -27,13 +27,12 @@ const limiter = rateLimit({
 
 app.use(helmet());
 app.use(morgan('dev'));
+const corsOrigins = process.env.CORS_ORIGINS 
+  ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
+  : ['http://localhost:5173', 'http://localhost:3000'];
+
 app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL,
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'https://perfumeewebs.netlify.app'
-  ].filter(Boolean),
+  origin: corsOrigins,
   credentials: true
 }));
 app.use(limiter);
