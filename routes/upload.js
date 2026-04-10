@@ -5,9 +5,19 @@ const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 
 cloudinary.config({
-  cloud_name: process.env.CLOUD_NAME,
-  api_key: process.env.CLOUD_API_KEY,
-  api_secret: process.env.CLOUD_SECRET
+  cloud_name: process.env.CLOUD_NAME || 'dxgxu4znm',
+  api_key: process.env.CLOUD_API_KEY || '',
+  api_secret: process.env.CLOUD_SECRET || ''
+});
+
+router.get('/test', (req, res) => {
+  res.json({
+    cloud_name_set: !!process.env.CLOUD_NAME,
+    api_key_set: !!process.env.CLOUD_API_KEY,
+    api_secret_set: !!process.env.CLOUD_SECRET,
+    cloud_name: process.env.CLOUD_NAME || 'dxgxu4znm',
+    api_key_length: process.env.CLOUD_API_KEY ? process.env.CLOUD_API_KEY.length : 0
+  });
 });
 
 const storage = multer.memoryStorage();
