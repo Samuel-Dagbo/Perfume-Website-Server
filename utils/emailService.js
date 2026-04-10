@@ -227,7 +227,7 @@ const orderConfirmationEmail = async (order, user) => {
         <p style="margin: 4px 0 0; color: #6b7280; font-size: 14px;">Qty: ${item.quantity}</p>
       </td>
       <td style="padding: 16px; border-bottom: 1px solid #f3f4f6; text-align: right; color: #1a1a2e;">
-        $${item.total.toFixed(2)}
+        ₵${item.total.toFixed(2)}
       </td>
     </tr>
   `).join('');
@@ -261,19 +261,19 @@ const orderConfirmationEmail = async (order, user) => {
               <table style="width: 100%;">
                 <tr>
                   <td style="color: #6b7280; padding: 4px 0;">Subtotal:</td>
-                  <td style="text-align: right; color: #1a1a2e;">$${order.subtotal.toFixed(2)}</td>
+                  <td style="text-align: right; color: #1a1a2e;">₵${order.subtotal.toFixed(2)}</td>
                 </tr>
                 <tr>
                   <td style="color: #6b7280; padding: 4px 0;">Shipping:</td>
-                  <td style="text-align: right; color: #1a1a2e;">$${order.shippingCost.toFixed(2)}</td>
+                  <td style="text-align: right; color: #1a1a2e;">${order.shippingCost === 0 ? 'Free' : '₵' + order.shippingCost.toFixed(2)}</td>
                 </tr>
                 <tr>
                   <td style="color: #6b7280; padding: 4px 0;">Tax:</td>
-                  <td style="text-align: right; color: #1a1a2e;">$${order.tax.toFixed(2)}</td>
+                  <td style="text-align: right; color: #1a1a2e;">₵${order.tax.toFixed(2)}</td>
                 </tr>
                 <tr style="font-weight: 600;">
                   <td style="color: #1a1a2e; padding: 8px 0 0; font-size: 18px;">Total:</td>
-                  <td style="text-align: right; color: #d4af37; font-size: 18px;">$${order.total.toFixed(2)}</td>
+                  <td style="text-align: right; color: #d4af37; font-size: 18px;">₵${order.total.toFixed(2)}</td>
                 </tr>
               </table>
             </div>
@@ -289,14 +289,14 @@ const orderConfirmationEmail = async (order, user) => {
             </p>
           </div>
           
-          <a href="${process.env.FRONTEND_URL}/orders/${order._id}" style="display: inline-block; background: linear-gradient(135deg, #d4af37 0%, #f5d67b 100%); color: #1a1a2e; padding: 16px 40px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; text-transform: uppercase; letter-spacing: 1px;">
+          <a href="${process.env.FRONTEND_URL}/orders" style="display: inline-block; background: linear-gradient(135deg, #d4af37 0%, #f5d67b 100%); color: #1a1a2e; padding: 16px 40px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; text-transform: uppercase; letter-spacing: 1px;">
             View Order
           </a>
         </div>
         
         <div style="background: #1a1a2e; padding: 30px; text-align: center;">
           <p style="color: #9ca3af; font-size: 14px; margin: 0;">
-            © 2024 Luxury Perfume. All rights reserved.<br>
+            © ${new Date().getFullYear()} Luxury Perfume. All rights reserved.<br>
             Questions? Contact us at support@luxuryperfume.com
           </p>
         </div>
