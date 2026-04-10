@@ -43,10 +43,9 @@ exports.createOrder = async (req, res, next) => {
       subtotal += product.price * item.quantity;
     }
 
-    const FREE_SHIPPING_THRESHOLD = 500;
     const TAX_RATE = 0.03;
     
-    const shippingCost = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : 25;
+    const shippingCost = 0;
     const tax = subtotal * TAX_RATE;
     const total = subtotal + shippingCost + tax;
 

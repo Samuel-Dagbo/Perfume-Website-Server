@@ -14,6 +14,7 @@ const saleRoutes = require('./routes/sales');
 const adminRoutes = require('./routes/admin');
 const uploadRoutes = require('./routes/upload');
 const couponRoutes = require('./routes/coupons');
+const analyticsRoutes = require('./routes/analytics');
 
 const errorHandler = require('./middleware/errorHandler');
 
@@ -53,6 +54,7 @@ app.use('/api/sales', saleRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/coupons', couponRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 app.use(errorHandler);
 
