@@ -27,12 +27,14 @@ const limiter = rateLimit({
 
 app.use(helmet());
 app.use(morgan('dev'));
-const corsOrigins = process.env.CORS_ORIGINS 
-  ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
-  : ['http://localhost:5173', 'http://localhost:3000'];
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:3000'
+].filter(Boolean);
 
 app.use(cors({
-  origin: corsOrigins,
+  origin: allowedOrigins,
   credentials: true
 }));
 app.use(limiter);
