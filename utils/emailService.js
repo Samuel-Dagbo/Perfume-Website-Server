@@ -284,7 +284,7 @@ const orderConfirmationEmail = async (order, user) => {
             <p style="color: #6b7280; margin: 0; line-height: 1.6;">
               ${order.shippingAddress.fullName}<br>
               ${order.shippingAddress.street}<br>
-              ${order.shippingAddress.city}, ${order.shippingAddress.state} ${order.shippingAddress.zipCode}<br>
+              ${order.shippingAddress.city}, ${order.shippingAddress.state}<br>
               ${order.shippingAddress.country}
             </p>
           </div>
