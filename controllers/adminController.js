@@ -237,31 +237,31 @@ exports.getInventory = async (req, res, next) => {
       query.name = { $regex: search, $options: 'i' };
     }
 
+    let allProducts = await Product.find(query)
+      .select('name sku stockQuantity lowStockThreshold category price isActive')
+      .sort(sort);
+
     if (status === 'low') {
-      query.$expr = {
-        $and: [
-          { $gt: ['$stockQuantity', 0] },
-          { $lte: ['$stockQuantity', '$lowStockThreshold'] }
-        ]
-      };
+      allProducts = allProducts.filter(p => p.stockQuantity > 0 && p.stockQuantity <= p.lowStockThreshold);
     } else if (status === 'out') {
-      query.stockQuantity = 0;
+      allProducts = allProducts.filter(p => p.stockQuantity === 0);
     } else if (status === 'in') {
-      query.$expr = { $gt: ['$stockQuantity', '$lowStockThreshold'] };
+      allProducts = allProducts.filter(p => p.stockQuantity > p.lowStockThreshold);
     }
 
+    const total = allProducts.length;
     const skip = (Number(page) - 1) * Number(limit);
-
-    const products = await Product.find(query)
-      .select('name sku stockQuantity lowStockThreshold category price isActive')
-      .sort(sort)
-      .skip(skip)
-      .limit(Number(limit));
-
-    const total = await Product.countDocuments(query);
+    const products = allProducts.slice(skip, skip + Number(limit));
 
     const enrichedProducts = products.map(p => ({
-      ...p.toObject(),
+      _id: p._id,
+      name: p.name,
+      sku: p.sku,
+      stockQuantity: p.stockQuantity,
+      lowStockThreshold: p.lowStockThreshold,
+      category: p.category,
+      price: p.price,
+      isActive: p.isActive,
       status: p.stockQuantity === 0 ? 'out_of_stock' : 
               p.stockQuantity <= p.lowStockThreshold ? 'low_stock' : 'in_stock'
     }));

@@ -108,16 +108,26 @@ const checkStockAvailability = async (items) => {
 };
 
 const getInventoryStats = async () => {
+  const allProducts = await Product.find().select('stockQuantity lowStockThreshold');
+  
+  let lowStockProducts = 0;
+  let outOfStockProducts = 0;
+  let totalStock = 0;
+
+  for (const product of allProducts) {
+    totalStock += product.stockQuantity;
+    if (product.stockQuantity === 0) {
+      outOfStockProducts++;
+    } else if (product.stockQuantity <= product.lowStockThreshold) {
+      lowStockProducts++;
+    }
+  }
+
   const stats = {
     totalProducts: await Product.countDocuments(),
-    totalStock: await Product.aggregate([
-      { $group: { _id: null, total: { $sum: '$stockQuantity' } } }
-    ]),
-    lowStockProducts: await Product.countDocuments({
-      stockQuantity: { $gt: 0 },
-      $expr: { $lte: ['$stockQuantity', '$lowStockThreshold'] }
-    }),
-    outOfStockProducts: await Product.countDocuments({ stockQuantity: 0 }),
+    totalStock: [{ total: totalStock }],
+    lowStockProducts,
+    outOfStockProducts,
     inventoryLogs: await InventoryLog.find()
       .sort({ createdAt: -1 })
       .limit(50)

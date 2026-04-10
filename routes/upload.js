@@ -3,7 +3,7 @@ const router = express.Router();
 const { protect, admin } = require('../middleware/auth');
 const { cloudinary, parser } = require('../utils/cloudinary');
 
-router.post('/upload', protect, admin, parser.array('images', 5), async (req, res, next) => {
+router.post('/', protect, admin, parser.array('images', 5), async (req, res, next) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
@@ -27,7 +27,7 @@ router.post('/upload', protect, admin, parser.array('images', 5), async (req, re
   }
 });
 
-router.delete('/delete/:publicId', protect, admin, async (req, res, next) => {
+router.delete('/:publicId', protect, admin, async (req, res, next) => {
   try {
     const result = await cloudinary.uploader.destroy(req.params.publicId);
 
